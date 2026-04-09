@@ -1,6 +1,5 @@
-__pycache__
+_pycache_
 *.pyc
-*.xlsx
 resultados.xlsx
 .git
 .vscode

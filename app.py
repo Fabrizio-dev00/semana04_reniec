@@ -7,7 +7,7 @@ import pandas as pd
 import time
 
 # Leer archivo Excel
-df = pd.read_excel("dnis.xlsx")
+df = pd.read_excel("dnis.xlsx", engine="openpyxl")
 
 resultados = []
 
