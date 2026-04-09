@@ -1,6 +1,8 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import pandas as pd
 import time
 
@@ -18,27 +20,50 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
 
-# Inicializar navegador (usa el chromium instalado en el sistema)
+# Inicializar navegador
 driver = webdriver.Chrome(options=chrome_options)
 
 url = "https://consultaelectoral.onpe.gob.pe/inicio"
+
+# ─── DIAGNÓSTICO: captura solo el primer DNI ───────────────────────────
+print("Cargando página para diagnóstico...")
+driver.get(url)
+time.sleep(6)
+
+driver.save_screenshot("/app/pagina.png")
+with open("/app/pagina.html", "w", encoding="utf-8") as f:
+    f.write(driver.page_source)
+
+print("Archivos guardados: pagina.png y pagina.html")
+print("Revisa pagina.png para ver qué cargó el navegador.")
+# ───────────────────────────────────────────────────────────────────────
 
 for _, fila in df.iterrows():
     dni = str(fila["DNI"]).strip()
 
     try:
         driver.get(url)
-        time.sleep(4)
+        time.sleep(6)
 
-        # Ingresar el DNI
-        input_dni = driver.find_element(By.XPATH, "//input[@type='text']")
+        # Esperar hasta 15s a que aparezca cualquier input visible
+        try:
+            input_dni = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located((By.XPATH, "//input[@type='text']"))
+            )
+        except Exception:
+            # Si no aparece, guardar screenshot de ese momento
+            driver.save_screenshot(f"/app/error_dni_{dni}.png")
+            raise Exception("No se encontró el input del DNI después de 15 segundos")
+
         input_dni.clear()
         input_dni.send_keys(dni)
 
         # Hacer clic en Consultar
-        boton = driver.find_element(
-            By.XPATH,
-            "//button[contains(translate(., 'CONSULTAR', 'consultar'), 'consultar')]"
+        boton = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((
+                By.XPATH,
+                "//button[contains(translate(., 'CONSULTAR', 'consultar'), 'consultar')]"
+            ))
         )
         boton.click()
 
