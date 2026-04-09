@@ -1,31 +1,25 @@
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
 import pandas as pd
 import time
 
 # Leer archivo Excel
-df = pd.read_excel("dnis.xlsx", engine="openpyxl")
+df = pd.read_excel("dnis.xlsx")
 
 resultados = []
 
-# Configuración de Chrome para Python 3.13
+# Configuración de Chrome para Docker
 chrome_options = Options()
+chrome_options.binary_location = "/usr/bin/chromium"
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--no-sandbox")
 chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
+chrome_options.add_argument("--window-size=1920,1080")
 
-# Evita problemas de compatibilidad en Windows / Python 3.13
-chrome_options.add_experimental_option("excludeSwitches", ["enable-logging"])
-
-# Inicializar navegador
-driver = webdriver.Chrome(
-    service=Service(ChromeDriverManager().install()),
-    options=chrome_options
-)
+# Inicializar navegador (usa el chromium instalado en el sistema)
+driver = webdriver.Chrome(options=chrome_options)
 
 url = "https://consultaelectoral.onpe.gob.pe/inicio"
 
@@ -36,12 +30,12 @@ for _, fila in df.iterrows():
         driver.get(url)
         time.sleep(4)
 
-        # Buscar el input donde se ingresa el DNI
+        # Ingresar el DNI
         input_dni = driver.find_element(By.XPATH, "//input[@type='text']")
         input_dni.clear()
         input_dni.send_keys(dni)
 
-        # Buscar el botón Consultar
+        # Hacer clic en Consultar
         boton = driver.find_element(
             By.XPATH,
             "//button[contains(translate(., 'CONSULTAR', 'consultar'), 'consultar')]"
@@ -58,15 +52,15 @@ for _, fila in df.iterrows():
             try:
                 ubicacion = driver.find_element(
                     By.XPATH,
-                    "//[contains(text(),'Ubicación')]/following::[1]"
+                    "//[contains(text(),'Ubicación') or contains(text(),'ubicación')]/following::[1]"
                 ).text.strip()
             except Exception:
                 ubicacion = "No encontrada"
 
             try:
-                 direccion = driver.find_element(
-                     By.XPATH,
-                     "//[contains(text(),'Dirección')]/following::[1]"
+                direccion = driver.find_element(
+                    By.XPATH,
+                    "//[contains(text(),'Dirección') or contains(text(),'dirección')]/following::[1]"
                 ).text.strip()
             except Exception:
                 direccion = "No encontrada"
@@ -97,7 +91,7 @@ for _, fila in df.iterrows():
 
 driver.quit()
 
-# Guardar resultados
+# Guardar resultados en Excel
 salida = pd.DataFrame(resultados)
 salida.to_excel("resultados.xlsx", index=False)
 
