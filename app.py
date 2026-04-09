@@ -8,7 +8,6 @@ import time
 
 # Leer archivo Excel
 df = pd.read_excel("dnis.xlsx")
-
 resultados = []
 
 # Configuración de Chrome para Docker
@@ -20,46 +19,57 @@ chrome_options.add_argument("--disable-dev-shm-usage")
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1920,1080")
 chrome_options.add_argument("--enable-javascript")
+chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 
-# Inicializar navegador
 driver = webdriver.Chrome(options=chrome_options)
 
 url = "https://consultaelectoral.onpe.gob.pe/inicio"
+
+def esperar_angular(driver, timeout=30):
+    """Espera a que Angular termine de renderizar el contenido."""
+    # 1. Esperar readyState complete
+    WebDriverWait(driver, timeout).until(
+        lambda d: d.execute_script("return document.readyState") == "complete"
+    )
+    # 2. Esperar a que app-root tenga hijos (Angular renderizó)
+    WebDriverWait(driver, timeout).until(
+        lambda d: d.execute_script(
+            "return document.querySelector('app-root') && "
+            "document.querySelector('app-root').children.length > 0"
+        )
+    )
+    # 3. Esperar a que aparezca cualquier input o button
+    WebDriverWait(driver, timeout).until(
+        lambda d: len(d.find_elements(By.XPATH, "//input | //button")) > 0
+    )
 
 # ─── DIAGNÓSTICO ────────────────────────────────────────────────────────
 print("Cargando página para diagnóstico...")
 driver.get(url)
 
-# Esperar hasta 20s a que Angular termine de renderizar
-# buscamos CUALQUIER input o button que aparezca
 try:
-    WebDriverWait(driver, 20).until(
-        lambda d: d.execute_script("return document.readyState") == "complete"
-    )
-    # Angular necesita tiempo extra después de readyState complete
-    time.sleep(5)
+    esperar_angular(driver)
+    print("Angular cargó correctamente")
 except Exception as e:
-    print(f"Timeout esperando página: {e}")
+    print(f"Timeout esperando Angular: {e}")
 
 driver.save_screenshot("/app/pagina.png")
 with open("/app/pagina.html", "w", encoding="utf-8") as f:
     f.write(driver.page_source)
 
-# Imprimir todos los inputs encontrados para diagnóstico
 inputs = driver.find_elements(By.XPATH, "//input")
 print(f"Inputs encontrados: {len(inputs)}")
 for i, inp in enumerate(inputs):
     print(f"  Input {i}: type='{inp.get_attribute('type')}' "
-          f"name='{inp.get_attribute('name')}' "
           f"id='{inp.get_attribute('id')}' "
-          f"placeholder='{inp.get_attribute('placeholder')}'")
+          f"placeholder='{inp.get_attribute('placeholder')}' "
+          f"formcontrolname='{inp.get_attribute('formcontrolname')}'")
 
 botones = driver.find_elements(By.XPATH, "//button")
 print(f"Botones encontrados: {len(botones)}")
 for i, b in enumerate(botones):
     print(f"  Botón {i}: text='{b.text}' id='{b.get_attribute('id')}'")
-
-print("Archivos guardados: pagina.png y pagina.html")
 # ────────────────────────────────────────────────────────────────────────
 
 for _, fila in df.iterrows():
@@ -67,42 +77,16 @@ for _, fila in df.iterrows():
 
     try:
         driver.get(url)
+        esperar_angular(driver)
 
-        # Esperar a que Angular cargue completamente
-        WebDriverWait(driver, 20).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
+        # Buscar input del DNI
+        input_dni = WebDriverWait(driver, 20).until(
+            EC.presence_of_element_located((By.XPATH, "//input"))
         )
-        time.sleep(5)  # Angular necesita tiempo extra
-
-        # Buscar input (intentamos varios selectores posibles)
-        input_dni = None
-        selectores = [
-            "//input[@type='text']",
-            "//input[@type='number']",
-            "//input[contains(@placeholder,'DNI') or contains(@placeholder,'dni')]",
-            "//input[contains(@id,'dni') or contains(@id,'DNI')]",
-            "//input[contains(@name,'dni') or contains(@name,'DNI')]",
-            "//input",  # cualquier input como último recurso
-        ]
-
-        for selector in selectores:
-            try:
-                elementos = driver.find_elements(By.XPATH, selector)
-                if elementos:
-                    input_dni = elementos[0]
-                    print(f"DNI {dni}: input encontrado con selector '{selector}'")
-                    break
-            except Exception:
-                continue
-
-        if input_dni is None:
-            driver.save_screenshot(f"/app/error_dni_{dni}.png")
-            raise Exception("No se encontró ningún input en la página")
-
         input_dni.clear()
         input_dni.send_keys(dni)
 
-        # Buscar botón consultar
+        # Buscar y clickear botón Consultar
         boton = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((
                 By.XPATH,
@@ -111,13 +95,13 @@ for _, fila in df.iterrows():
         )
         boton.click()
 
+        # Esperar resultado
         time.sleep(6)
 
         pagina = driver.page_source.lower()
 
         if "miembro de mesa" in pagina:
             estado = "SI"
-
             try:
                 ubicacion = driver.find_element(
                     By.XPATH,
@@ -125,7 +109,6 @@ for _, fila in df.iterrows():
                 ).text.strip()
             except Exception:
                 ubicacion = "No encontrada"
-
             try:
                 direccion = driver.find_element(
                     By.XPATH,
@@ -133,7 +116,6 @@ for _, fila in df.iterrows():
                 ).text.strip()
             except Exception:
                 direccion = "No encontrada"
-
         else:
             estado = "NO"
             ubicacion = "-"
@@ -145,11 +127,11 @@ for _, fila in df.iterrows():
             "Ubicación": ubicacion,
             "Dirección Local": direccion
         })
-
         print(f"DNI {dni}: {estado}")
 
     except Exception as e:
         print(f"Error con DNI {dni}: {e}")
+        driver.save_screenshot(f"/app/error_dni_{dni}.png")
         resultados.append({
             "DNI": dni,
             "Miembro de Mesa": "ERROR",
@@ -159,7 +141,6 @@ for _, fila in df.iterrows():
 
 driver.quit()
 
-# Guardar resultados
 salida = pd.DataFrame(resultados)
 salida.to_excel("resultados.xlsx", index=False)
 print("Proceso terminado. Archivo generado: resultados.xlsx")
