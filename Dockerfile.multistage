@@ -19,7 +19,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /install/deps /usr/local
 COPY . .
 
-RUN useradd -m appuser
+RUN useradd -m appuser \
+    && chown -R appuser:appuser /app \
+    && chmod -R 777 /app
+
 USER appuser
 
 CMD ["python", "app.py"]
